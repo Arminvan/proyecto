@@ -2,48 +2,48 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Extractor Profesional Word → Excel</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Extractor Profesional SAT</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #f4f4f9; }
         .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .fields-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
-        .field-item { border: 1px solid #ccc; padding: 8px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
-        #drop-zone { border: 2px dashed #185FA5; padding: 30px; text-align: center; margin-bottom: 20px; background: #e6f1fb; cursor: pointer; }
+        .fields-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 15px 0; }
+        .field-item { border: 1px solid #ccc; padding: 10px; border-radius: 4px; display: flex; align-items: center; gap: 8px; font-size: 14px; }
+        .btn-main { background:#185FA5; color:white; padding:15px; border:none; width:100%; border-radius:5px; font-size:16px; cursor:pointer; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Extractor de datos Word → Excel</h1>
-    <div id="drop-zone">Arrastra tus archivos .docx aquí</div>
+    <h2>Extractor de Datos SAT</h2>
     
-    <div id="fieldsGrid" class="fields-grid">
-        <label class="field-item"><input type="checkbox" checked value="Número de oficio"> Número de oficio</label>
+    <input type="file" id="fileInput" multiple accept=".docx" style="display:none;">
+    <button class="btn-main" onclick="document.getElementById('fileInput').click()">
+        📂 Seleccionar archivos (Cámara / Archivos / Drive)
+    </button>
+    
+    <div id="fieldsGrid" class="fields-grid" style="margin-top:20px;">
+        <label class="field-item"><input type="checkbox" checked value="Número de oficio"> Oficio</label>
         <label class="field-item"><input type="checkbox" checked value="RFC"> RFC</label>
         <label class="field-item"><input type="checkbox" checked value="Fecha"> Fecha</label>
         <label class="field-item"><input type="checkbox" checked value="Folio SIFEN"> Folio SIFEN</label>
         <label class="field-item"><input type="checkbox" checked value="Orden"> Orden</label>
-        <label class="field-item"><input type="checkbox" checked value="Asunto"> Asunto</label>
         <label class="field-item"><input type="checkbox" checked value="Contribuyente"> Contribuyente</label>
     </div>
 
-    <div>
-        <input type="text" id="customField" placeholder="Nuevo campo...">
+    <div style="margin-top:15px;">
+        <input type="text" id="customField" placeholder="Agregar campo extra...">
         <button onclick="addCustomField()">+ Agregar</button>
-        <button style="background:#185FA5; color:white; padding:10px 20px; border:none; cursor:pointer;" onclick="processAll()">Extraer a Excel</button>
+        <button style="background:green; color:white; padding:10px; border:none; cursor:pointer;" onclick="processAll()">🚀 Extraer a Excel</button>
     </div>
 </div>
 
 <script>
     let pendingFiles = [];
-    const dropZone = document.getElementById('drop-zone');
-
-    dropZone.addEventListener('dragover', e => e.preventDefault());
-    dropZone.addEventListener('drop', e => {
-        e.preventDefault();
-        pendingFiles = [...e.dataTransfer.files].filter(f => f.name.endsWith('.docx'));
+    document.getElementById('fileInput').addEventListener('change', e => {
+        pendingFiles = [...e.target.files];
         alert(`Archivos cargados: ${pendingFiles.length}`);
     });
 
@@ -62,39 +62,32 @@
         for (const file of pendingFiles) {
             const zip = await JSZip.loadAsync(file);
             let fullText = "";
-            const paths = ["word/document.xml", "word/header1.xml", "word/header2.xml", "word/header3.xml"];
+            const paths = ["word/document.xml", "word/header1.xml", "word/header2.xml"];
             
             for (const path of paths) {
                 if (zip.file(path)) {
-                    const xml = await zip.file(path).async("string");
-                    fullText += xml.replace(/<[^>]*>/g, " ") + " ";
+                    fullText += (await zip.file(path).async("string")).replace(/<[^>]*>/g, " ") + " ";
                 }
             }
-            
+            // Limpieza radical para que los patrones no fallen
             const cleanText = fullText.replace(/\s+/g, ' ').replace(/[\u200B-\u200D\uFEFF]/g, '');
             
             const row = { 'Archivo': file.name };
-            selected.forEach(field => {
-                row[field] = extractSmart(cleanText, field);
-            });
+            selected.forEach(field => { row[field] = extractSmart(cleanText, field); });
             results.push(row);
         }
         exportExcel(results);
     }
 
     function extractSmart(text, field) {
-        // RFC: Se ha mejorado para ignorar cualquier etiqueta XML o punto que interrumpa "R.F.C."
         if (field === 'RFC') {
-            const match = text.match(/R(?:[^>]*>)?[\.\s]*F(?:[^>]*>)?[\.\s]*C(?:[^>]*>)?[\.\s]*[:\.\s]*([A-Z0-9&]{12,13})/i);
+            const match = text.match(/R[^\w]*F[^\w]*C[^\w]*[:\.]?\s*([A-Z0-9&]{12,13})/i);
             return match ? match[1] : "N/A";
         }
-        
-        // Fecha: Busca el formato "a [día] de [mes] de [año]"
         if (field === 'Fecha') {
             const match = text.match(/a\s+(\d{1,2}\s+de\s+(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s+de\s+\d{4})/i);
             return match ? match[1] : "N/A";
         }
-
         if (field === 'Número de oficio') return (text.match(/Oficio\s*:\s*([\w\-\/]+)/i) || [])[1] || "N/A";
         if (field === 'Contribuyente') {
             const match = text.match(/Legal\s+de\s+([A-ZÁÉÍÓÚÑ\s]{5,50}?)(?=\s+Esta|\s+Oficio|\s+RFC|\s+Orden|$)/i);
@@ -102,16 +95,14 @@
         }
         if (field === 'Folio SIFEN') return (text.match(/Folio\s+SIFEN\s*:\s*(\d+)/i) || [])[1] || "N/A";
         if (field === 'Orden') return (text.match(/Orden\s*:\s*([\w\/]+)/i) || [])[1] || "N/A";
-        if (field === 'Asunto') return (text.match(/Asunto\s*:\s*(.*?)(?=\.|$)/i) || [])[1] || "N/A";
-
+        
         const generic = new RegExp(field + '\\s*[:\\s]*([^\\n\\r]{5,60})', 'i');
         return (text.match(generic) || [])[1]?.trim() || "N/A";
     }
 
     function exportExcel(data) {
-        const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+        XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Resultados");
         XLSX.writeFile(wb, "resultados_finales.xlsx");
     }
 </script>
