@@ -28,10 +28,10 @@
         <label class="field-item"><input type="checkbox" checked value="Contribuyente"> Contribuyente</label>
     </div>
 
-    <div style="margin-top: 10px;">
-        <input type="text" id="customField" placeholder="Nuevo campo (ej: Expediente)...">
-        <button onclick="addCustomField()">+ Agregar campo</button>
-        <button class="btn" style="background:#185FA5; color:white; padding:10px 20px; border:none; cursor:pointer;" onclick="processAll()">Extraer a Excel</button>
+    <div>
+        <input type="text" id="customField" placeholder="Nuevo campo...">
+        <button onclick="addCustomField()">+ Agregar</button>
+        <button style="background:#185FA5; color:white; padding:10px 20px; border:none; cursor:pointer;" onclick="processAll()">Extraer a Excel</button>
     </div>
 </div>
 
@@ -50,11 +50,13 @@
         const val = document.getElementById('customField').value;
         if (!val) return;
         const grid = document.getElementById('fieldsGrid');
-        const label = document.createElement('label');
-        label.className = 'field-item';
-        label.innerHTML = `<input type="checkbox" checked value="${val}"> ${val}`;
-        grid.appendChild(label);
+        grid.innerHTML += `<label class="field-item"><input type="checkbox" checked value="${val}"> ${val}</label>`;
         document.getElementById('customField').value = '';
+    }
+
+    // NORMALIZADOR: Elimina espacios invisibles y caracteres de control
+    function limpiarTexto(text) {
+        return text.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ');
     }
 
     async function processAll() {
@@ -68,13 +70,15 @@
             
             for (const path of files) {
                 if (zip.file(path)) {
-                    fullText += (await zip.file(path).async("string")).replace(/<[^>]*>/g, " ") + " ";
+                    const xml = await zip.file(path).async("string");
+                    fullText += xml.replace(/<[^>]*>/g, " ") + " ";
                 }
             }
-
+            
+            const cleanText = limpiarTexto(fullText);
             const row = { 'Archivo': file.name };
             selected.forEach(field => {
-                row[field] = extractSmart(fullText, field);
+                row[field] = extractSmart(cleanText, field);
             });
             results.push(row);
         }
@@ -82,14 +86,18 @@
     }
 
     function extractSmart(text, field) {
-        // Lógica de extracción reforzada para tu documento
         if (field === 'Número de oficio') return (text.match(/Oficio\s*:\s*([\w\-\/]+)/i) || [])[1] || "N/A";
         
-        // RFC mejorado: busca patrón con o sin puntos (R.F.C. o RFC)
-        if (field === 'RFC') return (text.match(/(?:R\.?\s*F\.?\s*C\.?)\s*[:\s]*([A-Z0-9]{12,13})/i) || [])[1] || "N/A";
+        // RFC REFORZADO: Busca en cualquier lugar, ignorando si hay puntos o espacios extra
+        if (field === 'RFC') {
+            const match = text.match(/(?:R\.?\s*F\.?\s*C\.?)\s*[:\.]?\s*([A-Z0-9&]{12,13})/i);
+            return match ? match[1] : "N/A";
+        }
         
-        // Contribuyente: busca tras "Representante Legal de" y captura la siguiente línea/bloque
-        if (field === 'Contribuyente') return (text.match(/Representante\s+Legal\s+de\s+([A-ZÁÉÍÓÚÑ\s]{5,50}?)(?=\s+Esta|\s+Oficio|\s+RFC|\s+Orden|$)/i) || [])[1]?.trim() || "N/A";
+        if (field === 'Contribuyente') {
+            const match = text.match(/Legal\s+de\s+([A-ZÁÉÍÓÚÑ\s]{5,50}?)(?=\s+Esta|\s+Oficio|\s+RFC|\s+Orden|$)/i);
+            return match ? match[1].trim() : "N/A";
+        }
         
         if (field === 'Folio SIFEN') return (text.match(/Folio\s+SIFEN\s*:\s*(\d+)/i) || [])[1] || "N/A";
         if (field === 'Orden') return (text.match(/Orden\s*:\s*([\w\/]+)/i) || [])[1] || "N/A";
