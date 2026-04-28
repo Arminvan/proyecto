@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Extractor de datos Word → Excel</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f5f4f0;
+      --surface: #ffffff;
+      --surface2: #f0eeea;
+      --border: #dddbd5;
+      --text: #1a1916;
+      --text2: #6b6960;
+      --text3: #9c9a93;
+      --blue: #185FA5;
+      --blue-light: #e6f1fb;
+      --blue-text: #0C447C;
+      --green: #0F6E56;
+      --green-light: #e1f5ee;
+      --red: #A32D2D;
+      --red-light: #fcebeb;
+      --radius: 10px;
+      --radius-sm: 6px;
+    }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem 1rem;
+    }
+
+    .container { max-width: 900px; margin: 0 auto; }
+
+    header { margin-bottom: 2rem; }
+    header h1 { font-size: 22px; font-weight: 600; margin-bottom: 4px; }
+    header p { font-size: 14px; color: var(--text2); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text2);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 1rem;
+    }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 2.5rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--surface2);
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: var(--blue);
+      background: var(--blue-light);
+    }
+    .drop-zone svg { opacity: 0.4; margin-bottom: 10px; }
+    .drop-zone p { font-size: 15px; color: var(--text2); line-height: 1.6; }
+    .drop-zone strong { color: var(--text); }
+    .drop-zone small { font-size: 12px; color: var(--text3); }
+    #fileInput { display: none; }
+
+    /* Fields */
+    .fields-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .field-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s;
+      background: var(--surface2);
+    }
+    .field-item:hover { background: var(--blue-light); }
+    .field-item input[type=checkbox] { accent-color: var(--blue); width: 14px; height: 14px; flex-shrink: 0; }
+
+    .custom-row {
+      display: flex;
+      gap: 8px;
+    }
+    .custom-row input[type=text] {
+      flex: 1;
+      padding: 8px 12px;
+      font-size: 13px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+    }
+    .custom-row input[type=text]:focus { border-color: var(--blue); }
+    .btn {
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--surface2); }
+    .btn-primary {
+      background: var(--blue);
+      color: white;
+      border-color: var(--blue);
+    }
+    .btn-primary:hover { background: var(--blue-text); border-color: var(--blue-text); }
+
+    /* Status */
+    .status {
+      font-size: 13px;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      display: none;
+      margin-bottom: 1rem;
+    }
+    .status.info { background: var(--blue-light); color: var(--blue-text); display: block; }
+    .status.success { background: var(--green-light); color: var(--green); display: block; }
+    .status.error { background: var(--red-light); color: var(--red); display: block; }
+
+    /* File list */
+    .file-list { margin-bottom: 1rem; }
+    .file-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 3px 10px;
+      margin: 3px;
+      color: var(--text2);
+    }
+    .file-badge svg { opacity: 0.5; }
+
+    /* Results table */
+    #resultsSection { display: none; }
+    .results-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .results-header h2 { font-size: 16px; font-weight: 600; }
+    .badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 12px;
+      border-radius: 99px;
+      background: var(--blue-light);
+      color: var(--blue-text);
+    }
+    .actions { display: flex; gap: 8px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 500px; }
+    thead { background: var(--surface2); }
+    th {
+      padding: 10px 14px;
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    td {
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    td.not-found { color: var(--text3); font-style: italic; font-size: 12px; }
+    td.filename { font-weight: 500; font-size: 12px; color: var(--text2); max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .footer {
+      margin-top: 2rem;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text3);
+    }
+
+    @media (max-width: 600px) {
+      .results-header { flex-direction: column; align-items: flex-start; }
+      .actions { flex-wrap: wrap; }
+      .fields-grid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Extractor de datos Word → Excel</h1>
+    <p>Sube múltiples archivos .docx y extrae campos específicos automáticamente</p>
+  </header>
+
+  <!-- Subir archivos -->
+  <div class="card">
+    <div class="card-title">Archivos .docx</div>
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".docx" multiple />
+      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+        <polyline points="14,2 14,8 20,8"/>
+        <line x1="12" y1="18" x2="12" y2="12"/>
+        <polyline points="9,15 12,12 15,15"/>
+      </svg>
+      <p><strong>Arrastra tus archivos .docx aquí</strong><br>
+      <small>o haz clic para seleccionarlos</small></p>
+    </div>
+    <div id="fileList" class="file-list" style="margin-top:10px;"></div>
+  </div>
+
+  <!-- Campos a extraer -->
+  <div class="card">
+    <div class="card-title">Campos a extraer</div>
+    <div class="fields-grid" id="fieldsGrid">
+      <label class="field-item"><input type="checkbox" checked value="Número de oficio"> Número de oficio</label>
+      <label class="field-item"><input type="checkbox" checked value="RFC"> RFC</label>
+      <label class="field-item"><input type="checkbox" checked value="Fecha de emisión"> Fecha de emisión</label>
+      <label class="field-item"><input type="checkbox" value="Monto"> Monto</label>
+      <label class="field-item"><input type="checkbox" value="Nombre"> Nombre</label>
+      <label class="field-item"><input type="checkbox" value="CURP"> CURP</label>
+      <label class="field-item"><input type="checkbox" value="Domicilio"> Domicilio</label>
+      <label class="field-item"><input type="checkbox" value="Asunto"> Asunto</label>
+      <label class="field-item"><input type="checkbox" value="Folio"> Folio</label>
+      <label class="field-item"><input type="checkbox" value="Dependencia"> Dependencia</label>
+    </div>
+    <div class="custom-row">
+      <input type="text" id="customField" placeholder="Agregar campo personalizado (ej: Expediente)..." />
+      <button class="btn" onclick="addCustomField()">+ Agregar</button>
+    </div>
+  </div>
+
+  <!-- Botón procesar -->
+  <div id="statusMsg" class="status"></div>
+  <div style="margin-bottom:1.25rem;">
+    <button class="btn btn-primary" id="processBtn" onclick="processFiles()" style="padding:10px 24px;font-size:14px;">
+      Extraer datos
+    </button>
+  </div>
+
+  <!-- Resultados -->
+  <div id="resultsSection" class="card">
+    <div class="results-header">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <h2>Resultados</h2>
+        <span class="badge" id="countBadge">0 archivos</span>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="exportExcel()">⬇ Exportar a Excel</button>
+        <button class="btn" onclick="clearAll()">Limpiar</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    100% en el navegador · Sin servidor · Sin cuenta · Gratis
+  </div>
+</div>
+
+<script>
+  let pendingFiles = [];
+  let extractedData = [];
+
+  // Drag & drop
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    addFiles([...e.dataTransfer.files].filter(f => f.name.endsWith('.docx')));
+  });
+  fileInput.addEventListener('change', e => addFiles([...e.target.files]));
+
+  function addFiles(files) {
+    if (!files.length) return;
+    pendingFiles = [...pendingFiles, ...files];
+    renderFileList();
+  }
+
+  function renderFileList() {
+    const list = document.getElementById('fileList');
+    list.innerHTML = pendingFiles.map((f, i) =>
+      `<span class="file-badge">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/></svg>
+        ${f.name}
+      </span>`
+    ).join('');
+  }
+
+  function getSelectedFields() {
+    return [...document.querySelectorAll('#fieldsGrid input[type=checkbox]:checked')].map(cb => cb.value);
+  }
+
+  function addCustomField() {
+    const input = document.getElementById('customField');
+    const val = input.value.trim();
+    if (!val) return;
+    const grid = document.getElementById('fieldsGrid');
+    const label = document.createElement('label');
+    label.className = 'field-item';
+    label.innerHTML = `<input type="checkbox" checked value="${val}"> ${val}`;
+    grid.appendChild(label);
+    input.value = '';
+  }
+
+  // Patrones de extracción
+  const PATTERNS = {
+    'RFC': [
+      /RFC[:\s]*([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/i,
+      /R\.F\.C[:\s]*([A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3})/i
+    ],
+    'CURP': [
+      /CURP[:\s]*([A-Z]{4}\d{6}[HM][A-Z]{5}[A-Z0-9]\d)/i
+    ],
+    'Número de oficio': [
+      /(?:oficio|ofic\.?)[:\s#nNúmero\.]*([A-Z0-9][\w\-\/\.]{2,20})/i,
+      /No\.?\s*(?:de\s*)?(?:oficio)?[:\s]*([A-Z0-9][\w\-\/\.]{2,20})/i,
+      /Núm\.?\s*(?:de\s*)?(?:oficio)?[:\s]*([A-Z0-9][\w\-\/\.]{2,20})/i
+    ],
+    'Folio': [
+      /folio[:\s#]*([A-Z0-9][\w\-\/\.]{1,20})/i,
+      /No\.?\s*folio[:\s]*([A-Z0-9][\w\-\/\.]{1,20})/i
+    ],
+    'Fecha de emisión': [
+      /(?:fecha[:\s]*(?:de\s*)?(?:emisión|expedición|elaboración|oficio|documento)?)[:\s]*(\d{1,2}\s*(?:de\s*)?(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(?:de\s*)?\d{2,4})/i,
+      /(\d{1,2}\s*(?:de\s*)?(?:enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre)\s*(?:de\s*)?\d{4})/i,
+      /fecha[:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i,
+      /(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4})/
+    ],
+    'Monto': [
+      /(?:monto|importe|total|cantidad)[:\s]*\$?\s*([\d,\.]+(?:\.\d{2})?)/i,
+      /\$\s*([\d,\.]+(?:\.\d{2})?)/
+    ],
+    'Nombre': [
+      /(?:nombre(?:\s+(?:completo|del\s+(?:ciudadano|contribuyente|trabajador|solicitante|interesado)))?)[:\s]*([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑA-Za-záéíóúñ]+){1,5})/,
+      /(?:C\.\s+|Ciudadano[:\s]+)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,4})/
+    ],
+    'Domicilio': [
+      /(?:domicilio|dirección)[:\s]*(.{10,100})(?=\n|RFC|Tel|$)/i
+    ],
+    'Asunto': [
+      /(?:asunto|re:|referencia)[:\s]*(.{5,150})(?=\n|Estimad|Por medio|Me dirijo|$)/i
+    ],
+    'Dependencia': [
+      /(?:dependencia|entidad|institución|secretaría)[:\s]*(.{5,100})(?=\n|$)/i,
+      /^([A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ\s]{10,60})$/m
+    ]
+  };
+
+  function extractField(text, fieldName) {
+    const patterns = PATTERNS[fieldName];
+    if (patterns) {
+      for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match && match[1]) return match[1].trim().replace(/\s+/g, ' ');
+      }
+    }
+    // Búsqueda genérica para campos personalizados
+    const escaped = fieldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const generic = new RegExp(escaped + '[:\\s]+([^\\n]{1,100})', 'i');
+    const match = text.match(generic);
+    return match ? match[1].trim() : null;
+  }
+
+  function setStatus(msg, type) {
+    const el = document.getElementById('statusMsg');
+    el.textContent = msg;
+    el.className = `status ${type}`;
+  }
+
+  async function processFiles() {
+    if (!pendingFiles.length) { setStatus('Selecciona al menos un archivo .docx primero.', 'error'); return; }
+    const fields = getSelectedFields();
+    if (!fields.length) { setStatus('Selecciona al menos un campo para extraer.', 'error'); return; }
+
+    const btn = document.getElementById('processBtn');
+    btn.disabled = true;
+    btn.textContent = 'Procesando...';
+
+    const results = [];
+    for (let i = 0; i < pendingFiles.length; i++) {
+      const file = pendingFiles[i];
+      setStatus(`Procesando ${i + 1}/${pendingFiles.length}: ${file.name}`, 'info');
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        const text = result.value;
+        const row = { '_archivo': file.name };
+        for (const field of fields) {
+          row[field] = extractField(text, field);
+        }
+        results.push(row);
+      } catch (e) {
+        const row = { '_archivo': file.name };
+        for (const field of fields) row[field] = null;
+        row['_error'] = 'Error al leer';
+        results.push(row);
+      }
+    }
+
+    extractedData = [...extractedData, ...results];
+    renderTable(fields);
+    setStatus(`✓ Se procesaron ${pendingFiles.length} archivo(s). Total acumulado: ${extractedData.length}`, 'success');
+    pendingFiles = [];
+    renderFileList();
+    btn.disabled = false;
+    btn.textContent = 'Extraer datos';
+    fileInput.value = '';
+  }
+
+  function renderTable(fields) {
+    const cols = fields;
+    const thead = document.getElementById('thead');
+    thead.innerHTML = '<tr><th>Archivo</th>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr>';
+
+    const tbody = document.getElementById('tbody');
+    tbody.innerHTML = extractedData.map(row =>
+      '<tr>' +
+      `<td class="filename" title="${row['_archivo']}">${row['_archivo']}</td>` +
+      cols.map(c => {
+        const val = row[c];
+        return val ? `<td>${val}</td>` : '<td class="not-found">—</td>';
+      }).join('') +
+      '</tr>'
+    ).join('');
+
+    document.getElementById('resultsSection').style.display = 'block';
+    document.getElementById('countBadge').textContent = `${extractedData.length} registro${extractedData.length !== 1 ? 's' : ''}`;
+  }
+
+  function exportExcel() {
+    if (!extractedData.length) return;
+    const fields = getSelectedFields();
+    const headers = ['Archivo', ...fields];
+    const rows = extractedData.map(row => [row['_archivo'], ...fields.map(f => row[f] || '')]);
+    const wsData = [headers, ...rows];
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Ancho de columnas
+    ws['!cols'] = headers.map(() => ({ wch: 28 }));
+
+    // Estilo de encabezado (negrita)
+    const range = XLSX.utils.decode_range(ws['!ref']);
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const cellRef = XLSX.utils.encode_cell({ r: 0, c: C });
+      if (ws[cellRef]) {
+        ws[cellRef].s = { font: { bold: true }, fill: { fgColor: { rgb: 'E6F1FB' } } };
+      }
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Datos extraídos');
+    const fecha = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `datos_extraidos_${fecha}.xlsx`);
+  }
+
+  function clearAll() {
+    extractedData = [];
+    pendingFiles = [];
+    renderFileList();
+    document.getElementById('resultsSection').style.display = 'none';
+    document.getElementById('statusMsg').className = 'status';
+    document.getElementById('statusMsg').textContent = '';
+  }
+</script>
+</body>
+</html>
