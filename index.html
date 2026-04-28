@@ -2,115 +2,79 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Extractor Profesional Word → Excel</title>
+    <title>Extractor Profesional de Oficios</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         body { font-family: sans-serif; padding: 20px; background: #f4f4f9; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .fields-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0; }
-        .field-item { border: 1px solid #ccc; padding: 8px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 5px; }
-        #drop-zone { border: 2px dashed #185FA5; padding: 30px; text-align: center; margin-bottom: 20px; background: #e6f1fb; cursor: pointer; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        #drop-zone { border: 2px dashed #ccc; padding: 40px; text-align: center; cursor: pointer; margin-bottom: 20px; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Extractor de datos Word → Excel</h1>
+    <h2>Extractor de Oficios (Header + Body)</h2>
     <div id="drop-zone">Arrastra tus archivos .docx aquí</div>
-    
-    <div id="fieldsGrid" class="fields-grid">
-        <label class="field-item"><input type="checkbox" checked value="Número de oficio"> Número de oficio</label>
-        <label class="field-item"><input type="checkbox" checked value="RFC"> RFC</label>
-        <label class="field-item"><input type="checkbox" checked value="Folio SIFEN"> Folio SIFEN</label>
-        <label class="field-item"><input type="checkbox" checked value="Orden"> Orden</label>
-        <label class="field-item"><input type="checkbox" checked value="Asunto"> Asunto</label>
-        <label class="field-item"><input type="checkbox" checked value="Contribuyente"> Contribuyente</label>
-    </div>
-
-    <div>
-        <input type="text" id="customField" placeholder="Nuevo campo...">
-        <button onclick="addCustomField()">+ Agregar</button>
-        <button style="background:#185FA5; color:white; padding:10px 20px; border:none; cursor:pointer;" onclick="processAll()">Extraer a Excel</button>
-    </div>
+    <div id="status"></div>
 </div>
 
 <script>
-    let pendingFiles = [];
     const dropZone = document.getElementById('drop-zone');
 
-    dropZone.addEventListener('dragover', e => e.preventDefault());
-    dropZone.addEventListener('drop', e => {
+    dropZone.addEventListener('drop', async (e) => {
         e.preventDefault();
-        pendingFiles = [...e.dataTransfer.files].filter(f => f.name.endsWith('.docx'));
-        alert(`Archivos cargados: ${pendingFiles.length}`);
-    });
-
-    function addCustomField() {
-        const val = document.getElementById('customField').value;
-        if (!val) return;
-        const grid = document.getElementById('fieldsGrid');
-        grid.innerHTML += `<label class="field-item"><input type="checkbox" checked value="${val}"> ${val}</label>`;
-        document.getElementById('customField').value = '';
-    }
-
-    async function processAll() {
-        const selected = [...document.querySelectorAll('input:checked')].map(i => i.value);
+        const files = e.dataTransfer.files;
         const results = [];
 
-        for (const file of pendingFiles) {
+        for (const file of files) {
             const zip = await JSZip.loadAsync(file);
             let fullText = "";
-            const paths = ["word/document.xml", "word/header1.xml", "word/header2.xml", "word/header3.xml"];
-            
-            for (const path of paths) {
-                if (zip.file(path)) {
-                    // Extraer texto y limpiar etiquetas inmediatamente
-                    const xml = await zip.file(path).async("string");
-                    fullText += xml.replace(/<[^>]*>/g, " ") + " ";
+
+            // 1. Extraer texto del cuerpo (document.xml)
+            const docXml = await zip.file("word/document.xml").async("string");
+            fullText += parseXmlText(docXml) + "\n";
+
+            // 2. Extraer texto de encabezados (header1.xml, header2.xml, etc.)
+            for (let i = 1; i <= 3; i++) {
+                const headerFile = zip.file(`word/header${i}.xml`);
+                if (headerFile) {
+                    fullText += await headerFile.async("string") + "\n";
                 }
             }
-            
-            // Limpieza radical para que los patrones no fallen por caracteres invisibles
-            const cleanText = fullText.replace(/\s+/g, ' ').replace(/[\u200B-\u200D\uFEFF]/g, '');
-            
-            const row = { 'Archivo': file.name };
-            selected.forEach(field => {
-                row[field] = extractSmart(cleanText, field);
+
+            results.push({
+                nombre: file.name,
+                datos: extraerCampos(fullText)
             });
-            results.push(row);
         }
-        exportExcel(results);
+        generarExcel(results);
+    });
+
+    function parseXmlText(xmlString) {
+        // Limpieza simple de etiquetas XML para obtener texto plano
+        return xmlString.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
     }
 
-    function extractSmart(text, field) {
-        if (field === 'Número de oficio') return (text.match(/Oficio\s*:\s*([\w\-\/]+)/i) || [])[1] || "N/A";
-        
-        if (field === 'RFC') {
-            // Este patrón ignora etiquetas y espacios entre R.F.C. y el código alfanumérico
-            const match = text.match(/R[\.\s]*F[\.\s]*C[\.\s]*[:\.\s]*([A-Z0-9&]{12,13})/i);
-            return match ? match[1] : "N/A";
-        }
-        
-        if (field === 'Contribuyente') {
-            const match = text.match(/Legal\s+de\s+([A-ZÁÉÍÓÚÑ\s]{5,50}?)(?=\s+Esta|\s+Oficio|\s+RFC|\s+Orden|$)/i);
-            return match ? match[1].trim() : "N/A";
-        }
-        
-        if (field === 'Folio SIFEN') return (text.match(/Folio\s+SIFEN\s*:\s*(\d+)/i) || [])[1] || "N/A";
-        if (field === 'Orden') return (text.match(/Orden\s*:\s*([\w\/]+)/i) || [])[1] || "N/A";
-        if (field === 'Asunto') return (text.match(/Asunto\s*:\s*(.*?)(?=\.|$)/i) || [])[1] || "N/A";
-
-        const generic = new RegExp(field + '\\s*[:\\s]*([^\\n\\r]{5,60})', 'i');
-        return (text.match(generic) || [])[1]?.trim() || "N/A";
+    function extraerCampos(texto) {
+        return {
+            oficio: (texto.match(/Oficio:\s*([\w-]+)/i) || [])[1] || "N/A",
+            rfc: (texto.match(/R\.F\.C\.:?\s*([A-Z0-9]{12,13})/i) || [])[1] || "N/A",
+            orden: (texto.match(/Orden:\s*([A-Z0-9\/]+)/i) || [])[1] || "N/A",
+            folio: (texto.match(/Folio SIFEN:\s*(\d+)/i) || [])[1] || "N/A",
+            // Ajuste para el Representante Legal: busca después de la frase y toma la línea
+            representante: (texto.match(/Representante Legal de\s+([A-Z\s]+?)(?=\s|$)/i) || [])[1]?.trim() || "N/A"
+        };
     }
 
-    function exportExcel(data) {
-        const ws = XLSX.utils.json_to_sheet(data);
+    function generarExcel(data) {
+        const ws = XLSX.utils.json_to_sheet(data.map(d => ({ Archivo: d.nombre, ...d.datos })));
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Resultados");
-        XLSX.writeFile(wb, "resultados_finales.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "Extraccion");
+        XLSX.writeFile(wb, "datos_extraidos.xlsx");
     }
+
+    dropZone.addEventListener('dragover', (e) => e.preventDefault());
 </script>
 </body>
 </html>
