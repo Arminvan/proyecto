@@ -8,73 +8,72 @@
     <style>
         body { font-family: sans-serif; padding: 20px; background: #f4f4f9; }
         .container { max-width: 800px; margin: auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        #drop-zone { border: 2px dashed #ccc; padding: 40px; text-align: center; cursor: pointer; margin-bottom: 20px; }
+        #drop-zone { border: 2px dashed #185FA5; padding: 40px; text-align: center; cursor: pointer; margin-bottom: 20px; background: #e6f1fb; border-radius: 8px; }
+        .btn { padding: 10px 20px; background: #185FA5; color: white; border: none; border-radius: 5px; cursor: pointer; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h2>Extractor de Oficios (Header + Body)</h2>
+    <h2>Extractor de Oficios (Incluye Encabezados)</h2>
     <div id="drop-zone">Arrastra tus archivos .docx aquí</div>
+    <button class="btn" onclick="procesarArchivos()">Procesar Archivos</button>
     <div id="status"></div>
 </div>
 
 <script>
     const dropZone = document.getElementById('drop-zone');
+    let archivosPendientes = [];
 
-    dropZone.addEventListener('drop', async (e) => {
+    dropZone.addEventListener('dragover', e => e.preventDefault());
+    dropZone.addEventListener('drop', e => {
         e.preventDefault();
-        const files = e.dataTransfer.files;
-        const results = [];
+        archivosPendientes = [...e.dataTransfer.files].filter(f => f.name.endsWith('.docx'));
+        document.getElementById('status').innerText = `Archivos cargados: ${archivosPendientes.length}`;
+    });
 
-        for (const file of files) {
+    async function procesarArchivos() {
+        if (archivosPendientes.length === 0) return alert("Selecciona archivos primero");
+        
+        const resultados = [];
+
+        for (const file of archivosPendientes) {
             const zip = await JSZip.loadAsync(file);
             let fullText = "";
 
-            // 1. Extraer texto del cuerpo (document.xml)
-            const docXml = await zip.file("word/document.xml").async("string");
-            fullText += parseXmlText(docXml) + "\n";
-
-            // 2. Extraer texto de encabezados (header1.xml, header2.xml, etc.)
-            for (let i = 1; i <= 3; i++) {
-                const headerFile = zip.file(`word/header${i}.xml`);
-                if (headerFile) {
-                    fullText += await headerFile.async("string") + "\n";
+            // 1. Leer contenido de documento y encabezados
+            const filesToRead = ["word/document.xml", "word/header1.xml", "word/header2.xml", "word/header3.xml"];
+            
+            for (const path of filesToRead) {
+                const f = zip.file(path);
+                if (f) {
+                    const xml = await f.async("string");
+                    fullText += xml.replace(/<[^>]*>/g, " ") + " ";
                 }
             }
 
-            results.push({
-                nombre: file.name,
-                datos: extraerCampos(fullText)
+            // 2. Extraer campos
+            resultados.push({
+                Archivo: file.name,
+                "Número de oficio": (fullText.match(/Oficio\s*:\s*([\w\-\/]+)/i) || [])[1] || "N/A",
+                "RFC": (fullText.match(/R\.?\s*F\.?\s*C\.?\s*:?\s*([A-Z0-9]{12,13})/i) || [])[1] || "N/A",
+                "Folio SIFEN": (fullText.match(/Folio\s+SIFEN\s*:?\s*(\d+)/i) || [])[1] || "N/A",
+                "Orden": (fullText.match(/Orden\s*:?\s*([A-Z0-9\/]+)/i) || [])[1] || "N/A",
+                "Asunto": (fullText.match(/Asunto\s*:\s*(.*?)(?=\.|$)/i) || [])[1] || "N/A",
+                "Contribuyente": (fullText.match(/Representante\s+Legal\s+de\s+([A-ZÁÉÍÓÚÑ\s]{5,50})(?=\sOficio|RFC|Orden|$)/i) || [])[1]?.trim() || "N/A"
             });
         }
-        generarExcel(results);
-    });
 
-    function parseXmlText(xmlString) {
-        // Limpieza simple de etiquetas XML para obtener texto plano
-        return xmlString.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
+        descargarExcel(resultados);
     }
 
-    function extraerCampos(texto) {
-        return {
-            oficio: (texto.match(/Oficio:\s*([\w-]+)/i) || [])[1] || "N/A",
-            rfc: (texto.match(/R\.F\.C\.:?\s*([A-Z0-9]{12,13})/i) || [])[1] || "N/A",
-            orden: (texto.match(/Orden:\s*([A-Z0-9\/]+)/i) || [])[1] || "N/A",
-            folio: (texto.match(/Folio SIFEN:\s*(\d+)/i) || [])[1] || "N/A",
-            // Ajuste para el Representante Legal: busca después de la frase y toma la línea
-            representante: (texto.match(/Representante Legal de\s+([A-Z\s]+?)(?=\s|$)/i) || [])[1]?.trim() || "N/A"
-        };
-    }
-
-    function generarExcel(data) {
-        const ws = XLSX.utils.json_to_sheet(data.map(d => ({ Archivo: d.nombre, ...d.datos })));
+    function descargarExcel(data) {
+        const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Extraccion");
-        XLSX.writeFile(wb, "datos_extraidos.xlsx");
+        XLSX.utils.book_append_sheet(wb, ws, "Resultados");
+        XLSX.writeFile(wb, "extraccion_final.xlsx");
+        alert("¡Archivo Excel generado exitosamente!");
     }
-
-    dropZone.addEventListener('dragover', (e) => e.preventDefault());
 </script>
 </body>
 </html>
