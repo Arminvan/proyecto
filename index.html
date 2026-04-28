@@ -54,11 +54,6 @@
         document.getElementById('customField').value = '';
     }
 
-    // NORMALIZADOR: Elimina espacios invisibles y caracteres de control
-    function limpiarTexto(text) {
-        return text.replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\s+/g, ' ');
-    }
-
     async function processAll() {
         const selected = [...document.querySelectorAll('input:checked')].map(i => i.value);
         const results = [];
@@ -66,16 +61,19 @@
         for (const file of pendingFiles) {
             const zip = await JSZip.loadAsync(file);
             let fullText = "";
-            const files = ["word/document.xml", "word/header1.xml", "word/header2.xml", "word/header3.xml"];
+            const paths = ["word/document.xml", "word/header1.xml", "word/header2.xml", "word/header3.xml"];
             
-            for (const path of files) {
+            for (const path of paths) {
                 if (zip.file(path)) {
+                    // Extraer texto y limpiar etiquetas inmediatamente
                     const xml = await zip.file(path).async("string");
                     fullText += xml.replace(/<[^>]*>/g, " ") + " ";
                 }
             }
             
-            const cleanText = limpiarTexto(fullText);
+            // Limpieza radical para que los patrones no fallen por caracteres invisibles
+            const cleanText = fullText.replace(/\s+/g, ' ').replace(/[\u200B-\u200D\uFEFF]/g, '');
+            
             const row = { 'Archivo': file.name };
             selected.forEach(field => {
                 row[field] = extractSmart(cleanText, field);
@@ -88,9 +86,9 @@
     function extractSmart(text, field) {
         if (field === 'Número de oficio') return (text.match(/Oficio\s*:\s*([\w\-\/]+)/i) || [])[1] || "N/A";
         
-        // RFC REFORZADO: Busca en cualquier lugar, ignorando si hay puntos o espacios extra
         if (field === 'RFC') {
-            const match = text.match(/(?:R\.?\s*F\.?\s*C\.?)\s*[:\.]?\s*([A-Z0-9&]{12,13})/i);
+            // Este patrón ignora etiquetas y espacios entre R.F.C. y el código alfanumérico
+            const match = text.match(/R[\.\s]*F[\.\s]*C[\.\s]*[:\.\s]*([A-Z0-9&]{12,13})/i);
             return match ? match[1] : "N/A";
         }
         
@@ -111,7 +109,7 @@
         const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "Resultados");
-        XLSX.writeFile(wb, "resultados_extraidos.xlsx");
+        XLSX.writeFile(wb, "resultados_finales.xlsx");
     }
 </script>
 </body>
